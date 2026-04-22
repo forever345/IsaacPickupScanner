@@ -1,0 +1,226 @@
+﻿using System;
+using System.Diagnostics;
+using System.Reflection.Metadata;
+using System.Runtime.InteropServices;
+using static WinAPI;
+
+class Program
+{
+    const int STRIDE = 0x540;
+    const int REQUIRED_CONSECUTIVE_SLOTS = 3;
+    static readonly int[] validVariants = { 10, 30, 100, 300, 350 };
+
+    static void Main()
+    {
+        Console.WriteLine("Isaac memory reader - start");
+
+        var processes = Process.GetProcessesByName("isaac-ng");
+
+        if (processes.Length == 0)
+        {
+            Console.WriteLine("Nie znaleziono procesu isaac-ng.exe");
+            return;
+        }
+
+        Process isaac = processes[0];
+        Console.WriteLine($"Znaleziono proces: PID = {isaac.Id}");
+
+        IntPtr handle = WinAPI.OpenProcess(
+            WinAPI.PROCESS_VM_READ | WinAPI.PROCESS_QUERY_INFORMATION,
+            false,
+            isaac.Id
+            );
+
+        if (handle == IntPtr.Zero)
+        {
+            Console.WriteLine("Nie udało się otworzyć procesu");
+            return;
+        }
+
+        Console.WriteLine("Proces otwarty poprawnie");
+
+        byte[] test = new byte[4];
+        WinAPI.ReadProcessMemory(
+            handle,
+            isaac.MainModule!.BaseAddress,
+            test,
+            test.Length,
+            out _
+            );
+
+        int testValue = BitConverter.ToInt32(test, 0);
+        Console.WriteLine($"Testowy odczyt OK: {testValue}");
+
+        IntPtr anchor = FindPickupAnchor(handle);
+
+        if (anchor == IntPtr.Zero)
+        {
+            Console.WriteLine("Pickup anchor NIE znaleziony");
+        }
+        else
+        {
+            Console.WriteLine($"Pickup anchor znaleziony: 0x{anchor.ToInt64():X}");
+        }
+
+        Console.WriteLine("Enumeracja regionów pamięci:");
+
+        IntPtr addr = IntPtr.Zero;
+
+     
+
+
+
+        Console.WriteLine("Naciśnij Enter aby zakończyć");
+        Console.ReadLine();
+    }
+
+    static IntPtr FindPickupAnchor(IntPtr processHandle)
+    {
+        IntPtr addr = IntPtr.Zero;
+
+        while (true)
+        {
+            WinAPI.MEMORY_BASIC_INFORMATION mbi;
+
+            int result = WinAPI.VirtualQueryEx(
+                processHandle,
+                addr,
+                out mbi,
+                (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION))
+                );
+
+            if (result == 0)
+                break;
+
+            bool isInterestingRegion =
+               mbi.State == WinAPI.MEM_COMMIT &&
+               mbi.Type == WinAPI.MEM_PRIVATE &&
+               (
+                   (mbi.Protect & WinAPI.PAGE_READWRITE) != 0 ||
+                   (mbi.Protect & WinAPI.PAGE_WRITECOPY) != 0 ||
+                   (mbi.Protect & WinAPI.PAGE_READONLY) != 0 ||
+                   (mbi.Protect & WinAPI.PAGE_EXECUTE_READ) != 0 ||
+                   (mbi.Protect & WinAPI.PAGE_EXECUTE_READWRITE) != 0
+               );
+
+            if (isInterestingRegion)
+            {
+                long regionStart = mbi.BaseAddress.ToInt64();
+                long regionEnd = regionStart + mbi.RegionSize.ToInt64();
+
+                for(long p = regionStart + 16; p + (REQUIRED_CONSECUTIVE_SLOTS *STRIDE) < regionEnd; p += 4)
+                {
+                    if(HasConsecutivePickupSlots(processHandle, p, REQUIRED_CONSECUTIVE_SLOTS))
+                    {
+                        Console.WriteLine($"Stable pickup anchor found at 0x{p:X}");
+                        return new nint(p);
+                    }
+                }
+            }
+
+            addr = new IntPtr(mbi.BaseAddress.ToInt64() + mbi.RegionSize.ToInt64());
+        }
+
+        Console.WriteLine($"proper anchor not found!");
+        return IntPtr.Zero;
+    }
+
+    static bool IsPickupSlot( IntPtr processHandle, long address)
+    {
+        int subType = ReadInt32(processHandle, address);
+        if (subType == 0)
+            return false;
+
+        int variant = ReadInt32(processHandle, address - 4);
+        if (Array.IndexOf(validVariants, variant) == -1)
+            return false;
+
+        int entityType = ReadInt32(processHandle, address - 8);
+        if (entityType != 5)
+            return false;
+
+        int flag1 = ReadInt32(processHandle, address - 12);
+        int flag2 = ReadInt32(processHandle, address - 16);
+        if (flag1 == 0 || flag2 == 0)
+            return false;
+
+        return true;
+    }
+
+    static bool HasConsecutivePickupSlots(IntPtr processHandle, long startAddress, int requiredCount)
+    {
+        for(int i = 0; i < requiredCount; i++)
+        {
+            long slotAddress = startAddress + i * STRIDE;
+
+            if(!IsPickupSlot(processHandle, slotAddress))
+                return false;
+        }
+
+        return true;
+    }
+
+    static int ReadInt32(IntPtr processHandle, long address)
+    {
+        byte[] buffer = new byte[4];
+        WinAPI.ReadProcessMemory(
+            processHandle,
+            new IntPtr(address),
+            buffer,
+            buffer.Length,
+            out _);
+
+        return BitConverter.ToInt32(buffer, 0);
+    }
+
+}
+
+static class WinAPI
+{
+    public const int PROCESS_VM_READ = 0x0010;
+    public const int PROCESS_QUERY_INFORMATION = 0x0400;
+
+    public const uint MEM_COMMIT = 0x00001000;
+    public const uint MEM_PRIVATE = 0x00020000;
+    public const uint PAGE_READWRITE = 0x04;
+    public const uint PAGE_WRITECOPY = 0x08;
+    public const uint PAGE_EXECUTE_READWRITE = 0x40;
+    public const uint PAGE_EXECUTE_READ = 0x20;
+    public const uint PAGE_READONLY = 0x02;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MEMORY_BASIC_INFORMATION
+    {
+        public IntPtr BaseAddress;
+        public IntPtr AllocationBase;
+        public uint AllocationProtect;
+        public IntPtr RegionSize;
+        public uint State;
+        public uint Protect;
+        public uint Type;
+    }
+
+    [DllImport("kernel32.dll")]
+    public static extern int VirtualQueryEx(
+        IntPtr hProcess,
+        IntPtr lpAddress,
+        out MEMORY_BASIC_INFORMATION lpBuffer,
+        uint dwLength
+        );
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr OpenProcess(
+        int dwDesiredAccess,
+        bool bInheritHandle,
+        int dwProcessId
+        );
+
+    [DllImport("kernel32.dll")]
+    public static extern bool ReadProcessMemory(
+        IntPtr hProcess,
+        IntPtr lpBaseAddress,
+        byte[] lpBuffer,
+        int dwSize,
+        out int lpNumberOfBytesRead
+        ); 
+}
