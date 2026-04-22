@@ -7,8 +7,9 @@ using static WinAPI;
 class Program
 {
     const int STRIDE = 0x540;
+    const int MAX_SUBTYPE = 10000;
     const int REQUIRED_CONSECUTIVE_SLOTS = 3;
-    static readonly int[] validVariants = { 10, 30, 100, 300, 350 };
+    static readonly HashSet<int> validVariants = new() { 10, 30, 100, 300, 350 };
 
     static void Main()
     {
@@ -106,14 +107,28 @@ class Program
             if (isInterestingRegion)
             {
                 long regionStart = mbi.BaseAddress.ToInt64();
-                long regionEnd = regionStart + mbi.RegionSize.ToInt64();
+                int regionSize = (int)mbi.RegionSize.ToInt64();
 
-                for(long p = regionStart + 16; p + (REQUIRED_CONSECUTIVE_SLOTS *STRIDE) < regionEnd; p += 4)
+                byte[] buffer = new byte[regionSize];
+
+                if (!WinAPI.ReadProcessMemory(
+                    processHandle,
+                    mbi.BaseAddress,
+                    buffer,
+                    buffer.Length,
+                    out int bytesRead) || bytesRead == 0)
                 {
-                    if(HasConsecutivePickupSlots(processHandle, p, REQUIRED_CONSECUTIVE_SLOTS))
+                    addr = new IntPtr(mbi.BaseAddress.ToInt64() + mbi.RegionSize.ToInt64());
+                    continue;
+                }
+
+                for (int offset = 16; offset + (REQUIRED_CONSECUTIVE_SLOTS * STRIDE) < bytesRead; offset += 4)
+                {
+                    if (HasConsecutivePickupSlots(buffer, offset, REQUIRED_CONSECUTIVE_SLOTS))
                     {
-                        Console.WriteLine($"Stable pickup anchor found at 0x{p:X}");
-                        return new nint(p);
+                        long realAddress = regionStart + offset;
+                        Console.WriteLine($"Stable pickup anchor found at 0x{realAddress:X}");
+                        return new IntPtr(realAddress);
                     }
                 }
             }
@@ -125,37 +140,40 @@ class Program
         return IntPtr.Zero;
     }
 
-    static bool IsPickupSlot( IntPtr processHandle, long address)
+    static bool HasConsecutivePickupSlots(byte[] buffer, int startOffset, int requiredCount)
     {
-        int subType = ReadInt32(processHandle, address);
-        if (subType == 0)
-            return false;
+        for (int i = 0; i < requiredCount; i++)
+        {
+            int offset = startOffset + i * STRIDE;
 
-        int variant = ReadInt32(processHandle, address - 4);
-        if (Array.IndexOf(validVariants, variant) == -1)
-            return false;
-
-        int entityType = ReadInt32(processHandle, address - 8);
-        if (entityType != 5)
-            return false;
-
-        int flag1 = ReadInt32(processHandle, address - 12);
-        int flag2 = ReadInt32(processHandle, address - 16);
-        if (flag1 == 0 || flag2 == 0)
-            return false;
+            if (!IsPickupSlot(buffer, offset))
+                return false;
+        }
 
         return true;
     }
 
-    static bool HasConsecutivePickupSlots(IntPtr processHandle, long startAddress, int requiredCount)
+    static bool IsPickupSlot(byte[] buffer, int offset)
     {
-        for(int i = 0; i < requiredCount; i++)
-        {
-            long slotAddress = startAddress + i * STRIDE;
+        if (offset - 16 < 0 || offset + 4 > buffer.Length)
+            return false;
 
-            if(!IsPickupSlot(processHandle, slotAddress))
-                return false;
-        }
+        int subType = BitConverter.ToInt32(buffer, offset);
+        if (subType <= 0 || subType > MAX_SUBTYPE)
+            return false;
+
+        int variant = BitConverter.ToInt32(buffer, offset - 4);
+        if (!validVariants.Contains(variant))
+            return false;
+
+        int entityType = BitConverter.ToInt32(buffer, offset - 8);
+        if (entityType != 5)
+            return false;
+
+        int flag1 = BitConverter.ToInt32(buffer, offset - 12);
+        int flag2 = BitConverter.ToInt32(buffer, offset - 16);
+        if (flag1 == 0 || flag2 == 0)
+            return false;
 
         return true;
     }
