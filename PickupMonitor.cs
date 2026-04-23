@@ -91,7 +91,7 @@ internal class PickupMonitor
                 break;
 
             int subType = BitConverter.ToInt32(buffer, offset);
-            int type = BitConverter.ToInt32(buffer, offset - 8);
+            int type = BitConverter.ToInt32(buffer, offset - 4);
 
             if (type == 100 && subType > 0)
             {
