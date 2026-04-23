@@ -13,6 +13,7 @@ class Program
     const int REQUIRED_CONSECUTIVE_SLOTS = 3;
     static readonly HashSet<int> validVariants = new() { 10, 30, 100, 300, 350 };
     static string outputPath = @"X:\Bezplatformowe\The Binding of Isaac Repentance\IsaacPickupScanner.txt";
+    static string jsonPath = @"X:\Bezplatformowe\The Binding of Isaac Repentance\items_json.json";
 
     static void Main()
     {
@@ -66,6 +67,8 @@ class Program
             Console.WriteLine($"Pickup anchor znaleziony: 0x{anchor.ToInt64():X}");
         }
 
+        var database = new ItemDatabase(jsonPath);
+
         var monitor = new PickupMonitor(
             handle,
             anchor,
@@ -74,7 +77,8 @@ class Program
             validVariants,
             STRIDE,
             outputPath,
-            MAX_SUBTYPE
+            MAX_SUBTYPE,
+            database
         );
 
         monitor.StartMonitoring();

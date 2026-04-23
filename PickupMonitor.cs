@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using static WinAPI;
 
@@ -16,6 +17,7 @@ internal class PickupMonitor
     private readonly string _outputPath;
     private readonly HashSet<int> _validVariants;
     private readonly int _maxSubtype;
+    private readonly ItemDatabase _database;
 
     private readonly HashSet<int> _previousActive = new();
 
@@ -27,7 +29,8 @@ internal class PickupMonitor
         HashSet<int> validVariants,
         int stride,
         string outputPath,
-        int maxSubtype)
+        int maxSubtype,
+        ItemDatabase database)
     {
         _processHandle = processHandle;
         _anchor = anchor.ToInt64();
@@ -37,6 +40,7 @@ internal class PickupMonitor
         _stride = stride;
         _outputPath = outputPath;
         _maxSubtype = maxSubtype;
+        _database = database;
     }
 
     public void StartMonitoring(int intervalMs = 300)
@@ -49,7 +53,7 @@ internal class PickupMonitor
 
             if (!currentActive.SetEquals(_previousActive))
             {
-                File.WriteAllLines(_outputPath, ConvertToLines(currentActive));
+                SaveItems(currentActive);
 
                 _previousActive.Clear();
                 foreach (var item in currentActive)
@@ -102,13 +106,64 @@ internal class PickupMonitor
         return result;
     }
 
-    private List<string> ConvertToLines(HashSet<int> items)
+    private string FormatItem(Item item)
     {
-        var lines = new List<string>();
+        var sb = new StringBuilder();
 
-        foreach (var item in items)
-            lines.Add(item.ToString());
+        sb.AppendLine($"ID: {item.Id}");
+        sb.AppendLine($"Name: {item.Name}");
 
-        return lines;
+        if (!string.IsNullOrWhiteSpace(item.Pickup))
+            sb.AppendLine($"Pickup: {item.Pickup}");
+
+        sb.AppendLine($"Quality: {item.Quality}");
+
+        sb.AppendLine();
+
+        if (item.Description != null && item.Description.Count > 0)
+        {
+            sb.AppendLine("Description:");
+
+            foreach (var line in item.Description)
+            {
+                sb.AppendLine($"- {line}");
+            }
+
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Type))
+            sb.AppendLine($"Type: {item.Type}");
+
+        if (!string.IsNullOrWhiteSpace(item.Pools))
+            sb.AppendLine($"Pools: {item.Pools}");
+
+        if (!string.IsNullOrWhiteSpace(item.Tags))
+            sb.AppendLine($"Tags: {item.Tags}");
+
+        sb.AppendLine("================================");
+
+        return sb.ToString();
+    }
+
+    private void SaveItems(HashSet<int> itemIds)
+    {
+        var sb = new StringBuilder();
+
+        foreach (var id in itemIds)
+        {
+            var items = _database.GetItems(id);
+
+            if (items != null)
+            {
+                sb.AppendLine($"=== Item ID: {id} ===");
+                foreach (var item in items)
+                {
+                    sb.AppendLine(FormatItem(item));
+                }
+            }
+        }
+
+        File.WriteAllText(_outputPath, sb.ToString());
     }
 }
