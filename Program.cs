@@ -159,7 +159,7 @@ class Program
             return false;
 
         int subType = BitConverter.ToInt32(buffer, offset);
-        if (subType <= 0 || subType > MAX_SUBTYPE)
+        if (subType < 0 || subType > MAX_SUBTYPE)
             return false;
 
         int variant = BitConverter.ToInt32(buffer, offset - 4);
