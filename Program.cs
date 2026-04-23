@@ -12,6 +12,7 @@ class Program
     const int MAX_SUBTYPE = 10000;
     const int REQUIRED_CONSECUTIVE_SLOTS = 3;
     static readonly HashSet<int> validVariants = new() { 10, 30, 100, 300, 350 };
+    static string outputPath = @"X:\Bezplatformowe\The Binding of Isaac Repentance\IsaacPickupScanner.txt";
 
     static void Main()
     {
@@ -54,7 +55,7 @@ class Program
         int testValue = BitConverter.ToInt32(test, 0);
         Console.WriteLine($"Testowy odczyt OK: {testValue}");
 
-        IntPtr anchor = FindPickupAnchor(handle);
+        var (anchor, regionBase, regionSize) = FindPickupAnchor(handle);
 
         if (anchor == IntPtr.Zero)
         {
@@ -65,19 +66,24 @@ class Program
             Console.WriteLine($"Pickup anchor znaleziony: 0x{anchor.ToInt64():X}");
         }
 
-        Console.WriteLine("Enumeracja regionów pamięci:");
+        var monitor = new PickupMonitor(
+            handle,
+            anchor,
+            regionBase,
+            regionSize,
+            validVariants,
+            STRIDE,
+            outputPath,
+            MAX_SUBTYPE
+        );
 
-        IntPtr addr = IntPtr.Zero;
-
-     
-
-
+        monitor.StartMonitoring();
 
         Console.WriteLine("Naciśnij Enter aby zakończyć");
         Console.ReadLine();
     }
 
-    static IntPtr FindPickupAnchor(IntPtr processHandle)
+    static (IntPtr anchor, long regionStart, int regionSize) FindPickupAnchor(IntPtr processHandle)
     {
         IntPtr addr = IntPtr.Zero;
 
@@ -130,7 +136,7 @@ class Program
                     {
                         long realAddress = regionStart + offset;
                         Console.WriteLine($"Stable pickup anchor found at 0x{realAddress:X}");
-                        return new IntPtr(realAddress);
+                        return (new IntPtr(realAddress), regionStart, regionSize);
                     }
                 }
             }
@@ -139,7 +145,7 @@ class Program
         }
 
         Console.WriteLine($"proper anchor not found!");
-        return IntPtr.Zero;
+        return (IntPtr.Zero, 0, 0);
     }
 
     static bool HasConsecutivePickupSlots(byte[] buffer, int startOffset, int requiredCount)
