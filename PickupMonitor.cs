@@ -19,7 +19,8 @@ internal class PickupMonitor
     private readonly int _maxSubtype;
     private readonly ItemDatabase _database;
 
-    private readonly HashSet<int> _previousActive = new();
+    private readonly HashSet<int> _supportedTypes = new HashSet<int>(){100, 300, 350};
+    private readonly HashSet<PickupKey> _previousActive = new();
 
     public PickupMonitor(
         IntPtr processHandle,
@@ -59,16 +60,16 @@ internal class PickupMonitor
                 foreach (var item in currentActive)
                     _previousActive.Add(item);
 
-                Console.WriteLine($"Updated items: {string.Join(", ", currentActive)}");
+                Console.WriteLine($"Updated items: {string.Join(", ", currentActive.Select(k => $"{k.Type}:{k.SubType}"))}");
             }
 
             Thread.Sleep(intervalMs);
         }
     }
 
-    private HashSet<int> ScanActiveItems()
+    private HashSet<PickupKey> ScanActiveItems()
     {
-        var result = new HashSet<int>();
+        var result = new HashSet<PickupKey>();
 
         byte[] buffer = new byte[_regionSize];
 
@@ -91,15 +92,16 @@ internal class PickupMonitor
             if (offset - 16 < 0 || offset + 4 > bytesRead)
                 break;
 
-            if (!MemoryUtils.IsPickupSlot(buffer, offset, _validVariants, _maxSubtype))
+            PickupSlotResult pickupSlotResult = MemoryUtils.AnalyzePickupSlot(buffer, offset, _validVariants, _maxSubtype);
+            if (!pickupSlotResult.IsValid)
                 break;
 
             int subType = BitConverter.ToInt32(buffer, offset);
             int type = BitConverter.ToInt32(buffer, offset - 4);
 
-            if (type == 100 && subType > 0)
+            if (_supportedTypes.Contains(type) && subType > 0)
             {
-                result.Add(subType);
+                result.Add(new PickupKey(type, subType));
             }
         }
 
@@ -146,17 +148,18 @@ internal class PickupMonitor
         return sb.ToString();
     }
 
-    private void SaveItems(HashSet<int> itemIds)
+    private void SaveItems(HashSet<PickupKey> itemKeys)
     {
         var sb = new StringBuilder();
 
-        foreach (var id in itemIds)
+        foreach (var key in itemKeys)
         {
-            var items = _database.GetItems(id);
+            var items = _database.GetItems(key.SubType, key.Type);
 
-            if (items != null)
+            if (items is { Count: > 0 })
             {
-                sb.AppendLine($"=== Item ID: {id} ===");
+                sb.AppendLine($"=== Item ID: {key.SubType} (Type: {key.Type}) ===");
+
                 foreach (var item in items)
                 {
                     sb.AppendLine(FormatItem(item));
@@ -166,4 +169,18 @@ internal class PickupMonitor
 
         File.WriteAllText(_outputPath, sb.ToString());
     }
+
+    internal readonly struct PickupKey
+    {
+        public int Type { get; }
+        public int SubType { get; }
+
+        public PickupKey(int type, int subType)
+        {
+            Type = type;
+            SubType = subType;
+        }
+    }
+
 }
+

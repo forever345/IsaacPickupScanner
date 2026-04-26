@@ -11,7 +11,8 @@ class Program
     const int STRIDE = 0x540;
     const int MAX_SUBTYPE = 10000;
     const int REQUIRED_CONSECUTIVE_SLOTS = 3;
-    static readonly HashSet<int> validVariants = new() { 10, 30, 100, 300, 350 };
+    //static readonly HashSet<int> validVariants = new() {1, 10, 30, 100, 300, 350 }; basic version 
+    static readonly HashSet<int> validVariants = new() { 1, 10, 20, 30, 40, 50, 69, 70, 90, 100, 300, 350 }; //test version
     static string outputPath = @"X:\Bezplatformowe\The Binding of Isaac Repentance\IsaacPickupScanner.txt";
     static string jsonPath = @"X:\Bezplatformowe\The Binding of Isaac Repentance\items_json.json";
 

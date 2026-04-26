@@ -14,6 +14,8 @@ class ItemDatabase
     private readonly Dictionary<int, List<Item>> _trinkets;
     private readonly Dictionary<int, List<Item>> _cards;
 
+    private readonly Dictionary<int, Dictionary<int, List<Item>>> _typeMap;
+
     public ItemDatabase(string jsonPath)
     {
         var options = new JsonSerializerOptions
@@ -40,21 +42,23 @@ class ItemDatabase
             .Where(x => x.Category == "card")
             .GroupBy(x => x.Id)
             .ToDictionary(g => g.Key, g => g.ToList());
+
+        _typeMap = new()
+        {
+            { 100, _items },
+            { 350, _trinkets },
+            { 300, _cards }
+        };
     }
 
-    public List<Item>? GetItems(int id)
+    public List<Item>? GetItems(int id, int type)
     {
-        return _items.TryGetValue(id, out var items) ? items : null;
-    }
+        if (_typeMap.TryGetValue(type, out var dict))
+        {
+            return dict.TryGetValue(id, out var items) ? items : null;
+        }
 
-    public List<Item>? GetTrinket(int id)
-    {
-        return _trinkets.TryGetValue(id, out var items) ? items : null;
-    }
-
-    public List<Item>? GetCard(int id)
-    {
-        return _cards.TryGetValue(id, out var items) ? items : null;
+        return null;
     }
 }
 
